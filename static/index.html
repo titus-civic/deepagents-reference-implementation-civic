@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Civic DeepAgent</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      background: #f0f2f5;
+      color: #1a1a2e;
+    }
+
+    header {
+      background: #1a1a2e;
+      color: #fff;
+      padding: 14px 20px;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    header h1 { font-size: 16px; font-weight: 600; }
+    header span { font-size: 12px; color: #8888aa; }
+
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .msg {
+      max-width: 72%;
+      padding: 10px 14px;
+      border-radius: 14px;
+      line-height: 1.55;
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg.user {
+      background: #1a1a2e;
+      color: #fff;
+      align-self: flex-end;
+      border-bottom-right-radius: 3px;
+    }
+    .msg.assistant {
+      background: #fff;
+      align-self: flex-start;
+      border-bottom-left-radius: 3px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    }
+    .msg.error { background: #fff0f0; color: #c00; align-self: flex-start; }
+
+    .typing {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 12px 14px;
+      background: #fff;
+      border-radius: 14px;
+      border-bottom-left-radius: 3px;
+      align-self: flex-start;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    }
+    .dot {
+      width: 7px; height: 7px;
+      background: #bbb;
+      border-radius: 50%;
+      animation: bounce 1.1s infinite ease-in-out;
+    }
+    .dot:nth-child(2) { animation-delay: .18s; }
+    .dot:nth-child(3) { animation-delay: .36s; }
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); }
+      30% { transform: translateY(-6px); }
+    }
+
+    #input-row {
+      display: flex;
+      gap: 10px;
+      padding: 14px 20px;
+      background: #fff;
+      border-top: 1px solid #e2e4e8;
+    }
+    textarea {
+      flex: 1;
+      padding: 9px 13px;
+      border: 1px solid #d0d3da;
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 14px;
+      resize: none;
+      outline: none;
+      max-height: 120px;
+      line-height: 1.45;
+    }
+    textarea:focus { border-color: #1a1a2e; }
+    button {
+      padding: 9px 18px;
+      background: #1a1a2e;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Civic DeepAgent</h1>
+    <span>Calendar &amp; Email Assistant</span>
+  </header>
+
+  <div id="messages"></div>
+
+  <div id="input-row">
+    <textarea id="input" rows="1" placeholder="Ask about your calendar or emails…"></textarea>
+    <button id="send">Send</button>
+  </div>
+
+  <script>
+    const messagesEl = document.getElementById('messages');
+    const inputEl    = document.getElementById('input');
+    const sendBtn    = document.getElementById('send');
+
+    let sessionId = null;
+
+    async function init() {
+      const res = await fetch('/session', { method: 'POST' });
+      ({ session_id: sessionId } = await res.json());
+    }
+
+    function appendMsg(role, text) {
+      const div = document.createElement('div');
+      div.className = `msg ${role}`;
+      div.textContent = text;
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return div;
+    }
+
+    function appendTyping() {
+      const div = document.createElement('div');
+      div.className = 'typing';
+      div.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return div;
+    }
+
+    async function send() {
+      const text = inputEl.value.trim();
+      if (!text || !sessionId) return;
+
+      inputEl.value = '';
+      inputEl.style.height = 'auto';
+      sendBtn.disabled = true;
+
+      appendMsg('user', text);
+      const typing = appendTyping();
+
+      let assistantDiv = null;
+      let buffer = '';
+
+      try {
+        const res = await fetch('/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId, message: text }),
+        });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          // SSE frames may arrive split across chunks; buffer and split on \n\n
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split('\n\n');
+          buffer = frames.pop(); // keep incomplete tail
+
+          for (const frame of frames) {
+            const line = frame.trim();
+            if (!line.startsWith('data: ')) continue;
+            let payload;
+            try { payload = JSON.parse(line.slice(6)); } catch { continue; }
+
+            if (payload.text) {
+              if (!assistantDiv) {
+                typing.remove();
+                assistantDiv = appendMsg('assistant', '');
+              }
+              assistantDiv.textContent += payload.text;
+              messagesEl.scrollTop = messagesEl.scrollHeight;
+            } else if (payload.error) {
+              typing.remove();
+              appendMsg('error', `Error: ${payload.error}`);
+            }
+          }
+        }
+      } catch (err) {
+        typing.remove();
+        appendMsg('error', `Connection error: ${err.message}`);
+      }
+
+      sendBtn.disabled = false;
+      inputEl.focus();
+    }
+
+    sendBtn.addEventListener('click', send);
+    inputEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+    inputEl.addEventListener('input', () => {
+      inputEl.style.height = 'auto';
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+    });
+
+    init();
+  </script>
+</body>
+</html>

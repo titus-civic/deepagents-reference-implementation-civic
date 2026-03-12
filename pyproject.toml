@@ -1,0 +1,14 @@
+[project]
+name = "deepagents-civic"
+version = "0.1.0"
+description = "Civic calendar & email agent powered by DeepAgents and Civic Nexus MCP"
+requires-python = ">=3.11"
+dependencies = [
+    "deepagents",
+    "langchain-anthropic",
+    "langchain-mcp-adapters",
+    "fastapi",
+    "uvicorn[standard]",
+    "python-dotenv",
+]
+
