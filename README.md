@@ -26,7 +26,5 @@ Open http://localhost:8000.
 | Variable | Description |
 |---|---|
 | `CIVIC_TOKEN` | Token from [nexus.civic.com](https://nexus.civic.com) |
-| `CIVIC_URL` | Full MCP hub URL including `accountId`, `profile`, and `lock=true` |
+| `CIVIC_URL` | Full MCP hub URL including `accountId` and `profile` |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
-
-The `lock=true` query param in `CIVIC_URL` prevents the agent from switching profiles mid-session (recommended for all non-interactive deployments).
